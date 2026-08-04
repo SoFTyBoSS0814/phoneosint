@@ -48,7 +48,7 @@ def check_twitter(email):
 def check_instagram(email):
     """
     Instagram ellenőrzés Playwright (Chromium) segítségével, 
-    látható böngészőablakkal és lelassított lépésekkel.
+    cookie-kezeléssel, látható böngészővel és lelassított lépésekkel.
     """
     try:
         with sync_playwright() as p:
@@ -59,6 +59,16 @@ def check_instagram(email):
             # Megnyitjuk az Instagram regisztrációs oldalát
             page.goto("https://www.instagram.com/accounts/emailsignup/", timeout=15000)
             time.sleep(3)  # Várakozás, hogy betöltődjön az oldal
+            
+            # --- COOKIE ABLAK KEZELÉSE ---
+            try:
+                accept_button = page.locator("button:has-text('Allow all cookies'), button:has-text('Összes elfogadása'), button:has-text('Allow Essential and Optional Cookies')")
+                if accept_button.is_visible(timeout=3000):
+                    accept_button.click()
+                    time.sleep(1)
+            except Exception:
+                pass
+            # -----------------------------
             
             # Adatok kitöltése jól látható ütemezéssel
             page.fill("input[name='email']", email)
@@ -75,7 +85,7 @@ def check_instagram(email):
             
             content = page.content()
             
-            # Extra várakozás zárás előtt, hogy látsd az eredményt a képernyőn
+            # Extra várakozás zárás előtt, hogy látsd az eredményt
             time.sleep(2)
             browser.close()
             
