@@ -6,8 +6,10 @@ import requests
 import sys
 import time
 import random
+import hashlib
+from playwright.sync_api import sync_playwright
 
-# Különböző valós böngésző User-Agent stringek, hogy ne ugyanazt küldjük
+# Valós böngésző User-Agent stringek
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2.1 Safari/605.1.15",
@@ -45,44 +47,63 @@ def check_twitter(email):
 
 def check_instagram(email):
     """
-    Instagram ellenőrzési modul vázlat.
+    Instagram ellenőrzés Playwright (Chromium) segítségével, 
+    látható böngészőablakkal és lelassított lépésekkel.
     """
-    url = "https://www.instagram.com/accounts/web_create_ajax/attempt/"
-    headers = get_random_headers()
-    headers["X-Requested-With"] = "XMLHttpRequest"
-    headers["Referer"] = "https://www.instagram.com/accounts/emailsignup/"
-    
-    data = {
-        "email": email,
-        "username": "osint_test_user_99",
-        "first_name": "Test",
-        "opt_into_one_tap": "false"
-    }
-
     try:
-        response = requests.post(url, data=data, headers=headers, timeout=5)
-        if response.status_code == 200:
-            res_json = response.json()
-            if "email_is_taken" in res_json.get("errors", {}):
+        with sync_playwright() as p:
+            # headless=False -> Látható lesz a böngészőablak
+            browser = p.chromium.launch(headless=False)
+            page = browser.new_page(user_agent=random.choice(USER_AGENTS))
+            
+            # Megnyitjuk az Instagram regisztrációs oldalát
+            page.goto("https://www.instagram.com/accounts/emailsignup/", timeout=15000)
+            time.sleep(3)  # Várakozás, hogy betöltődjön az oldal
+            
+            # Adatok kitöltése jól látható ütemezéssel
+            page.fill("input[name='email']", email)
+            time.sleep(1.5)
+            
+            page.fill("input[name='fullName']", "OSINT Test")
+            time.sleep(1.5)
+            
+            page.fill("input[name='username']", "osint_checker_99")
+            time.sleep(1.5)
+            
+            page.fill("input[name='password']", "Password123!")
+            time.sleep(2)  # Idő a validáció lefutásához
+            
+            content = page.content()
+            
+            # Extra várakozás zárás előtt, hogy látsd az eredményt a képernyőn
+            time.sleep(2)
+            browser.close()
+            
+            # Ellenőrizzük, hogy jelez-e a rendszer foglalt e-mail címet
+            if "already use" in content.lower() or "már használatban" in content.lower() or "taken" in content.lower():
                 return "[+] Instagram: Az e-mail már használatban van egy fióknál."
-    except requests.exceptions.RequestException:
+    except Exception:
         pass
+        
     return None
 
 
 def check_gravatar(email):
     """
-    Gravatar modul (Ez a valóságban is teljesen stabilan működik).
+    Gravatar modul, ami nemcsak a létezést, hanem a felhasználónevet is kinyeri.
     """
-    import hashlib
     email_hash = hashlib.md5(email.strip().lower().encode('utf-8')).hexdigest()
     url = f"https://www.gravatar.com/{email_hash}.json"
     
     try:
         response = requests.get(url, headers=get_random_headers(), timeout=5)
         if response.status_code == 200:
-            return f"[+] Gravatar: Profil megtalálva -> https://gravatar.com/{email_hash}"
-    except requests.exceptions.RequestException:
+            data = response.json()
+            entry = data.get("entry", [{}])[0]
+            username = entry.get("preferredUsername", "Ismeretlen")
+            profile_url = entry.get("profileUrl", f"https://gravatar.com/{email_hash}")
+            return f"[+] Gravatar: Találat! | Felhasználónév: {username} | Profil: {profile_url}"
+    except Exception:
         pass
     return None
 
@@ -106,15 +127,15 @@ def main():
     target_email = args.email
 
     print(f"\n[i] Célpont: {target_email}")
-    print("[i] Modulok futtatása véletlenszerű késleltetéssel és fejlécekkel...\n" + "="*50)
+    print("[i] Modulok futtatása véletlenszerű késleltetéssel...\n" + "="*50)
 
     found_count = 0
 
     for name, func in MODULES:
         print(f"[*] Ellenőrzés itt: {name}...", end="", flush=True)
         
-        # Késleltetés elhelyezése a kérések között
-        time.sleep(random.uniform(1.0, 2.5))
+        # Késleltetés a gyanús minták elkerülésére
+        time.sleep(random.uniform(1.0, 2.0))
         
         result = func(target_email)
         if result:
