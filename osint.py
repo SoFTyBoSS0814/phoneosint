@@ -8,7 +8,6 @@ import random
 import time
 import sys
 
-# Valós böngésző User-Agent stringek a blokkolások elkerülésére
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Safari/605.1.15",
@@ -24,65 +23,69 @@ def get_random_headers():
     }
 
 def load_database(filename="data.json"):
-    """Betölti és elemzi a lokális Sherlock data.json fájlt."""
     try:
         with open(filename, "r", encoding="utf-8") as f:
             return json.load(f)
     except FileNotFoundError:
-        print(f"[!] Hiba: A(z) '{filename}' fájl nem található a mappában!")
+        print(f"[!] Hiba: A(z) '{filename}' fájl nem található!")
         sys.exit(1)
     except json.JSONDecodeError:
-        print(f"[!] Hiba: A(z) '{filename}' fájl nem érvényes JSON formátumú!")
+        print(f"[!] Hiba: A(z) '{filename}' nem érvényes JSON!")
         sys.exit(1)
 
 def check_profile(site_name, site_data, username):
     """
-    Feldolgozza az adott oldal szabályait a data.json alapján,
-    és lefuttatja a HTTP kérést.
+    Biztonságos ellenőrző függvény, amely kezeli a hiányzó kulcsokat és attribumokat.
     """
-    url_template = site_data.get("url")
-    if not url_template:
+    # Biztosítjuk, hogy a site_data egy szótár legyen
+    if not isinstance(site_data, dict):
         return False, None
 
-    target_url = url_template.format(username)
+    url_template = site_data.get("url")
+    if not url_template or not isinstance(url_template, str):
+        return False, None
+
+    try:
+        target_url = url_template.format(username)
+    except Exception:
+        return False, None
+
     error_type = site_data.get("errorType", "status_code")
     
     headers = get_random_headers()
-    # Ha a JSON-ben meg vannak adva extra fejlécek az adott oldalhoz
-    if "headers" in site_data and isinstance(site_data["headers"], dict):
-        headers.update(site_data["headers"])
+    custom_headers = site_data.get("headers")
+    if custom_headers and isinstance(custom_headers, dict):
+        headers.update(custom_headers)
 
     try:
-        # A Sherlock alapértelmezetten GET kérést használ, de figyelembe vesszük a JSON-t ha mást kér
-        method = site_data.get("requestType", "GET").upper()
+        method = str(site_data.get("requestType", "GET")).upper()
         
         if method == "POST":
             response = requests.post(target_url, headers=headers, timeout=6, allow_redirects=True)
         else:
             response = requests.get(target_url, headers=headers, timeout=6, allow_redirects=True)
 
-        # 1. Státuszkód alapú ellenőrzés (pl. 200 = létezik, 404 = nem létezik)
+        # 1. Státuszkód alapú ellenőrzés
         if error_type == "status_code":
-            # Alapértelmezett hiba státusz a 404
-            error_code = site_data.get("errorCod", 404)
             if response.status_code == 200:
                 return True, target_url
 
-        # 2. Üzenet alapú ellenőrzés (ha a válaszoldal tartalmaz egy adott hibaüzenetet, akkor nincs fiók)
+        # 2. Üzenet alapú ellenőrzés
         elif error_type == "message":
             error_msg = site_data.get("errorMsg")
-            if error_msg:
-                # Ha a hibaüzenet NINCS benne a válaszban, akkor valószínűleg létezik a profil
+            if error_msg and isinstance(error_msg, str):
                 if error_msg not in response.text and response.status_code == 200:
                     return True, target_url
+            else:
+                if response.status_code == 200:
+                    return True, target_url
 
-        # 3. Válasz URL / Redirect alapú ellenőrzés
+        # 3. Válasz URL alapú ellenőrzés
         elif error_type == "response_url":
             if response.status_code == 200:
                 return True, target_url
 
     except requests.exceptions.RequestException:
-        # Hálózati hiba, időtúllépés esetén csendesen továbblépünk
         pass
     except Exception:
         pass
@@ -92,21 +95,21 @@ def check_profile(site_name, site_data, username):
 def main():
     parser = argparse.ArgumentParser(description="Mini-Sherlock lokális JSON alapú OSINT névkereső.")
     parser.add_argument("-u", "--username", required=True, help="A keresett felhasználónév")
-    parser.add_argument("-j", "--json", default="data.json", help="A data.json fájl elérési útja (alapértelmezett: data.json)")
+    parser.add_argument("-j", "--json", default="data.json", help="A data.json fájl elérési útja")
     args = parser.parse_args()
     
     target_user = args.username
     database = load_database(args.json)
 
     print(f"\n[i] Célpont felhasználónév: {target_user}")
-    print(f"[i] Adatbázis betöltve: {len(database)} db platform elemezve.")
-    print("[i] Keresés indítása a háttérben...\n" + "=" * 60)
+    print(f"[i] Adatbázis betöltve: {len(database)} db platform.")
+    print("[i] Keresés indítása...\n" + "=" * 60)
 
     found_count = 0
     start_time = time.time()
 
     for site_name, site_data in database.items():
-        print(f"[*] Keresés itt: {site_name:<18} ...", end="", flush=True)
+        print(f"[*] Keresés itt: {str(site_name):<18} ...", end="", flush=True)
         
         success, url = check_profile(site_name, site_data, target_user)
         
@@ -117,7 +120,6 @@ def main():
         else:
             print(" [Nincs]")
         
-        # Minimális szünet a kérések között a túlterhelés elkerülésére
         time.sleep(0.05)
 
     elapsed_time = round(time.time() - start_time, 2)
