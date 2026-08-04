@@ -37,8 +37,8 @@ def load_database(filename="data.json"):
 
 def check_profile(site_name, site_data, username):
     """
-    Biztonságos és szigorú ellenőrző függvény, amely kiszűri a soft 404-es
-    és hamis pozitív találatokat.
+    Biztonságos és szigorú ellenőrző függvény, amely kiszűri a soft 404-es,
+    SPA keretrendszeres és hamis pozitív találatokat.
     """
     if not isinstance(site_data, dict):
         return False, None
@@ -52,8 +52,6 @@ def check_profile(site_name, site_data, username):
     except Exception:
         return False, None
 
-    error_type = site_data.get("errorType", "status_code")
-    
     headers = get_random_headers()
     custom_headers = site_data.get("headers")
     if custom_headers and isinstance(custom_headers, dict):
@@ -67,42 +65,31 @@ def check_profile(site_name, site_data, username):
         else:
             response = requests.get(target_url, headers=headers, timeout=6, allow_redirects=True)
 
-        # 1. Alapvető hálózati / státusz szűrés
-        if response.status_code in [404, 410, 403, 401]:
+        # 1. Hálózati státusz alapú elutasítás
+        if response.status_code in [404, 410, 403, 401, 500, 502, 503]:
             return False, None
 
-        # Ha a válaszoldal túl rövid (pl. egy üres 200-as hibaoldal), az nem profil
-        if len(response.text.strip()) < 150:
-            return False, None
-
-        # 2. Redirect / Átirányítás szűrés: Ha a végső URL megegyezik a főoldallal, az hamis találat
+        # 2. Redirect szűrés (főoldalra dobott vissza)
         final_url = response.url.rstrip('/')
         base_url = site_data.get("urlMain", "").rstrip('/')
         if base_url and final_url == base_url:
             return False, None
 
-        # 3. JSON-ben megadott hibaüzenet szigorú ellenőrzése
+        # 3. KÖTELEZŐ NÉVEGYEZÉS VIZSGÁLAT (SPA oldalak és hamis 200 OK ellen)
+        # Ha a keresett felhasználónév betűről betűre NINCS BENNE a kapott válasz szövegében,
+        # akkor az oldal csak egy generikus keretrendszer vagy hibaoldal, nem a profil!
+        if username.lower() not in response.text.lower():
+            return False, None
+
+        # 4. JSON-ben megadott hibaüzenet ellenőrzése
         error_msg = site_data.get("errorMsg")
         if error_msg and isinstance(error_msg, str):
             if error_msg.lower() in response.text.lower():
                 return False, None
 
-        # 4. Típus szerinti vizsgálat
-        if error_type == "status_code":
-            if response.status_code == 200:
-                return True, target_url
-
-        elif error_type == "message":
-            if error_msg:
-                if error_msg not in response.text and response.status_code == 200:
-                    return True, target_url
-            else:
-                if response.status_code == 200:
-                    return True, target_url
-
-        elif error_type == "response_url":
-            if response.status_code == 200 and final_url != base_url:
-                return True, target_url
+        # 5. Ha minden szűrőn átment és a státusz 200
+        if response.status_code == 200:
+            return True, target_url
 
     except requests.exceptions.RequestException:
         pass
@@ -143,7 +130,7 @@ def main():
 
     elapsed_time = round(time.time() - start_time, 2)
     print("=" * 60)
-    print(f"[i] Keresés vége. Találatok: {found_count} db | Időtartam: {elapsed_time}s")
+    print(f"[i] Keresés vége. Valós találatok: {found_count} db | Időtartam: {elapsed_time}s")
 
 if __name__ == "__main__":
     main()
