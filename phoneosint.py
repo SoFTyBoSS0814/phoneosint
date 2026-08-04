@@ -29,57 +29,37 @@ def get_random_headers():
 
 def check_twitter(email):
     """
-    Twitter/X ellenőrzés Playwright (Chromium) segítségével, 
-    látható böngészőablakkal és lelassított lépésekkel.
+    Twitter/X ellenőrzés gyors HTTP API (requests) módszerrel.
     """
+    url = "https://api.twitter.com/i/users/email_available.json"
+    params = {"email": email}
+    
     try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=False)
-            page = browser.new_page(user_agent=random.choice(USER_AGENTS))
-            
-            # Megnyitjuk a Twitter regisztrációs oldalát
-            page.goto("https://twitter.com/i/flow/signup", timeout=20000)
-            time.sleep(4)  # Várakozás a betöltődésre
-            
-            # Előfordulhat süti ablak vagy hozzájárulási kérdés itt is
-            page.evaluate("""
-                document.querySelectorAll('div[role="dialog"], div[tabindex="-1"]').forEach(el => {
-                    if (el.innerText.includes('cookie') || el.innerText.includes('süti') || el.innerText.includes('Accept') || el.innerText.includes('Elfogadom')) {
-                        el.remove();
-                    }
-                });
-            """)
-            time.sleep(1)
-            
-            # Megpróbáljuk megkeresni az e-mail alapú regisztrációs gombot vagy mezőt, 
-            # ha közvetlenül nem látszik, navigálunk vagy kitöltjük, amit találunk
-            content = page.content()
-            time.sleep(2)
-            browser.close()
-            
-            # Egyszerűsített visszajelzés a lenti szövegek alapján
-            if "taken" in content.lower() or "már használatban" in content.lower() or "already registered" in content.lower():
+        response = requests.get(url, params=params, headers=get_random_headers(), timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("taken") == True or data.get("valid") == False:
                 return "[+] Twitter/X: Az e-mail címhez tartozik regisztrált fiók."
-    except Exception as e:
+    except requests.exceptions.RequestException:
         pass
-        
     return None
 
 
 def check_instagram(email):
     """
-    Instagram ellenőrzés Playwright-tal, JavaScript alapú takarítással és force kitöltéssel.
+    Instagram ellenőrzés Playwright-tal a háttérben (headless=True).
     """
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=False)
+            # headless=True -> A háttérben fut, nem nyit meg látható ablakot
+            browser = p.chromium.launch(headless=True)
             page = browser.new_page(user_agent=random.choice(USER_AGENTS))
             
             # Oldal megnyitása
             page.goto("https://www.instagram.com/accounts/emailsignup/", timeout=20000)
-            time.sleep(4)  
+            time.sleep(3)  
             
-            # --- AGRESSZÍV SÜTI / DIALÓGUS ELTÁVOLÍTÁS JS-SEL ---
+            # Süti / dialógus ablak eltávolítása JS-sel a biztonság kedvéért
             page.evaluate("""
                 document.querySelectorAll('div[role="dialog"], div[tabindex="-1"]').forEach(el => {
                     if (el.innerText.includes('cookie') || el.innerText.includes('süti') || el.innerText.includes('Accept') || el.innerText.includes('Elfogadom')) {
@@ -88,36 +68,35 @@ def check_instagram(email):
                 });
             """)
             time.sleep(1)
-            # ----------------------------------------------------
             
             # Adatok kitöltése 'force=True'-val
             page.fill("input[name='email']", email, force=True)
-            time.sleep(1.5)
-            
+            time.sleep(1)
             page.fill("input[name='fullName']", "OSINT Test", force=True)
-            time.sleep(1.5)
-            
+            time.sleep(1)
             page.fill("input[name='username']", "osint_checker_99", force=True)
-            time.sleep(1.5)
-            
+            time.sleep(1)
             page.fill("input[name='password']", "Password123!", force=True)
             time.sleep(2)  
             
             content = page.content()
-            time.sleep(2)
             browser.close()
             
             if "already use" in content.lower() or "már használatban" in content.lower() or "taken" in content.lower():
                 return "[+] Instagram: Az e-mail már használatban van egy fióknál."
-    except Exception as e:
+    except Exception:
         pass
         
     return None
 
 
 def check_gravatar(email):
+    """
+    Gravatar modul.
+    """
     email_hash = hashlib.md5(email.strip().lower().encode('utf-8')).hexdigest()
     url = f"https://www.gravatar.com/{email_hash}.json"
+    
     try:
         response = requests.get(url, headers=get_random_headers(), timeout=5)
         if response.status_code == 200:
@@ -149,13 +128,13 @@ def main():
     target_email = args.email
 
     print(f"\n[i] Célpont: {target_email}")
-    print("[i] Modulok futtatása...\n" + "="*50)
+    print("[i] Modulok futtatása a háttérben...\n" + "="*50)
 
     found_count = 0
 
     for name, func in MODULES:
         print(f"[*] Ellenőrzés itt: {name}...", end="", flush=True)
-        time.sleep(random.uniform(1.0, 2.0))
+        time.sleep(random.uniform(0.5, 1.0))
         
         result = func(target_email)
         if result:
