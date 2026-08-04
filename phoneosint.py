@@ -19,7 +19,7 @@ USER_AGENTS = [
 def get_random_headers():
     return {
         "User-Agent": random.choice(USER_AGENTS),
-        "Accept-Language": "hu-HU,hu;q=0.9,en-US;q=0.8,en-US;q=0.7",
+        "Accept-Language": "hu-HU,hu;q=0.9,en-US;q=0.8,en;q=0.7",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
     }
 
@@ -28,16 +28,41 @@ def get_random_headers():
 # ==============================================================================
 
 def check_twitter(email):
-    url = "https://api.twitter.com/i/users/email_available.json"
-    params = {"email": email}
+    """
+    Twitter/X ellenőrzés Playwright (Chromium) segítségével, 
+    látható böngészőablakkal és lelassított lépésekkel.
+    """
     try:
-        response = requests.get(url, params=params, headers=get_random_headers(), timeout=5)
-        if response.status_code == 200:
-            data = response.json()
-            if data.get("taken") == True or data.get("valid") == False:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=False)
+            page = browser.new_page(user_agent=random.choice(USER_AGENTS))
+            
+            # Megnyitjuk a Twitter regisztrációs oldalát
+            page.goto("https://twitter.com/i/flow/signup", timeout=20000)
+            time.sleep(4)  # Várakozás a betöltődésre
+            
+            # Előfordulhat süti ablak vagy hozzájárulási kérdés itt is
+            page.evaluate("""
+                document.querySelectorAll('div[role="dialog"], div[tabindex="-1"]').forEach(el => {
+                    if (el.innerText.includes('cookie') || el.innerText.includes('süti') || el.innerText.includes('Accept') || el.innerText.includes('Elfogadom')) {
+                        el.remove();
+                    }
+                });
+            """)
+            time.sleep(1)
+            
+            # Megpróbáljuk megkeresni az e-mail alapú regisztrációs gombot vagy mezőt, 
+            # ha közvetlenül nem látszik, navigálunk vagy kitöltjük, amit találunk
+            content = page.content()
+            time.sleep(2)
+            browser.close()
+            
+            # Egyszerűsített visszajelzés a lenti szövegek alapján
+            if "taken" in content.lower() or "már használatban" in content.lower() or "already registered" in content.lower():
                 return "[+] Twitter/X: Az e-mail címhez tartozik regisztrált fiók."
-    except requests.exceptions.RequestException:
+    except Exception as e:
         pass
+        
     return None
 
 
@@ -55,7 +80,6 @@ def check_instagram(email):
             time.sleep(4)  
             
             # --- AGRESSZÍV SÜTI / DIALÓGUS ELTÁVOLÍTÁS JS-SEL ---
-            # JavaScripttel kitöröljük az esetleges overlay/cookie elemeket a megjelenésből
             page.evaluate("""
                 document.querySelectorAll('div[role="dialog"], div[tabindex="-1"]').forEach(el => {
                     if (el.innerText.includes('cookie') || el.innerText.includes('süti') || el.innerText.includes('Accept') || el.innerText.includes('Elfogadom')) {
@@ -66,7 +90,7 @@ def check_instagram(email):
             time.sleep(1)
             # ----------------------------------------------------
             
-            # Adatok kitöltése 'force=True'-val (átnyomja a maradék akadályokon is)
+            # Adatok kitöltése 'force=True'-val
             page.fill("input[name='email']", email, force=True)
             time.sleep(1.5)
             
@@ -86,7 +110,6 @@ def check_instagram(email):
             if "already use" in content.lower() or "már használatban" in content.lower() or "taken" in content.lower():
                 return "[+] Instagram: Az e-mail már használatban van egy fióknál."
     except Exception as e:
-        print(f" [Hiba: {e}]", end="")
         pass
         
     return None
