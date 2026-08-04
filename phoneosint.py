@@ -19,7 +19,7 @@ USER_AGENTS = [
 def get_random_headers():
     return {
         "User-Agent": random.choice(USER_AGENTS),
-        "Accept-Language": "hu-HU,hu;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Accept-Language": "hu-HU,hu;q=0.9,en-US;q=0.8,en-US;q=0.7",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
     }
 
@@ -28,12 +28,8 @@ def get_random_headers():
 # ==============================================================================
 
 def check_twitter(email):
-    """
-    Twitter/X ellenőrzési modul vázlat.
-    """
     url = "https://api.twitter.com/i/users/email_available.json"
     params = {"email": email}
-    
     try:
         response = requests.get(url, params=params, headers=get_random_headers(), timeout=5)
         if response.status_code == 200:
@@ -47,64 +43,58 @@ def check_twitter(email):
 
 def check_instagram(email):
     """
-    Instagram ellenőrzés Playwright (Chromium) segítségével, 
-    cookie-kezeléssel, látható böngészővel és lelassított lépésekkel.
+    Instagram ellenőrzés Playwright-tal, JavaScript alapú takarítással és force kitöltéssel.
     """
     try:
         with sync_playwright() as p:
-            # headless=False -> Látható lesz a böngészőablak
             browser = p.chromium.launch(headless=False)
             page = browser.new_page(user_agent=random.choice(USER_AGENTS))
             
-            # Megnyitjuk az Instagram regisztrációs oldalát
-            page.goto("https://www.instagram.com/accounts/emailsignup/", timeout=15000)
-            time.sleep(3)  # Várakozás, hogy betöltődjön az oldal
+            # Oldal megnyitása
+            page.goto("https://www.instagram.com/accounts/emailsignup/", timeout=20000)
+            time.sleep(4)  
             
-            # --- COOKIE ABLAK KEZELÉSE ---
-            try:
-                accept_button = page.locator("button:has-text('Allow all cookies'), button:has-text('Összes elfogadása'), button:has-text('Allow Essential and Optional Cookies')")
-                if accept_button.is_visible(timeout=3000):
-                    accept_button.click()
-                    time.sleep(1)
-            except Exception:
-                pass
-            # -----------------------------
+            # --- AGRESSZÍV SÜTI / DIALÓGUS ELTÁVOLÍTÁS JS-SEL ---
+            # JavaScripttel kitöröljük az esetleges overlay/cookie elemeket a megjelenésből
+            page.evaluate("""
+                document.querySelectorAll('div[role="dialog"], div[tabindex="-1"]').forEach(el => {
+                    if (el.innerText.includes('cookie') || el.innerText.includes('süti') || el.innerText.includes('Accept') || el.innerText.includes('Elfogadom')) {
+                        el.remove();
+                    }
+                });
+            """)
+            time.sleep(1)
+            # ----------------------------------------------------
             
-            # Adatok kitöltése jól látható ütemezéssel
-            page.fill("input[name='email']", email)
+            # Adatok kitöltése 'force=True'-val (átnyomja a maradék akadályokon is)
+            page.fill("input[name='email']", email, force=True)
             time.sleep(1.5)
             
-            page.fill("input[name='fullName']", "OSINT Test")
+            page.fill("input[name='fullName']", "OSINT Test", force=True)
             time.sleep(1.5)
             
-            page.fill("input[name='username']", "osint_checker_99")
+            page.fill("input[name='username']", "osint_checker_99", force=True)
             time.sleep(1.5)
             
-            page.fill("input[name='password']", "Password123!")
-            time.sleep(2)  # Idő a validáció lefutásához
+            page.fill("input[name='password']", "Password123!", force=True)
+            time.sleep(2)  
             
             content = page.content()
-            
-            # Extra várakozás zárás előtt, hogy látsd az eredményt
             time.sleep(2)
             browser.close()
             
-            # Ellenőrizzük, hogy jelez-e a rendszer foglalt e-mail címet
             if "already use" in content.lower() or "már használatban" in content.lower() or "taken" in content.lower():
                 return "[+] Instagram: Az e-mail már használatban van egy fióknál."
-    except Exception:
+    except Exception as e:
+        print(f" [Hiba: {e}]", end="")
         pass
         
     return None
 
 
 def check_gravatar(email):
-    """
-    Gravatar modul, ami nemcsak a létezést, hanem a felhasználónevet is kinyeri.
-    """
     email_hash = hashlib.md5(email.strip().lower().encode('utf-8')).hexdigest()
     url = f"https://www.gravatar.com/{email_hash}.json"
-    
     try:
         response = requests.get(url, headers=get_random_headers(), timeout=5)
         if response.status_code == 200:
@@ -118,7 +108,6 @@ def check_gravatar(email):
     return None
 
 
-# Modulok listája
 MODULES = [
     ("Twitter/X", check_twitter),
     ("Instagram", check_instagram),
@@ -137,14 +126,12 @@ def main():
     target_email = args.email
 
     print(f"\n[i] Célpont: {target_email}")
-    print("[i] Modulok futtatása véletlenszerű késleltetéssel...\n" + "="*50)
+    print("[i] Modulok futtatása...\n" + "="*50)
 
     found_count = 0
 
     for name, func in MODULES:
         print(f"[*] Ellenőrzés itt: {name}...", end="", flush=True)
-        
-        # Késleltetés a gyanús minták elkerülésére
         time.sleep(random.uniform(1.0, 2.0))
         
         result = func(target_email)
