@@ -34,10 +34,6 @@ def load_database(filename="data.json"):
         sys.exit(1)
 
 def check_profile(site_name, site_data, username):
-    """
-    Biztonságos ellenőrző függvény, amely kezeli a hiányzó kulcsokat és attribumokat.
-    """
-    # Biztosítjuk, hogy a site_data egy szótár legyen
     if not isinstance(site_data, dict):
         return False, None
 
@@ -65,12 +61,23 @@ def check_profile(site_name, site_data, username):
         else:
             response = requests.get(target_url, headers=headers, timeout=6, allow_redirects=True)
 
+        # Hamis pozitív szűrés: Ha az URL átirányított a főoldalra vagy bejelentkezési oldalra, az nem a keresett profil!
+        if response.history:
+            final_url = response.url.rstrip('/')
+            base_url = site_data.get("urlMain", "").rstrip('/')
+            if base_url and final_url == base_url:
+                return False, None
+
         # 1. Státuszkód alapú ellenőrzés
         if error_type == "status_code":
             if response.status_code == 200:
+                # Extra védelem: Ha a JSON-ben van megadva errorMsg, de a status_code 200, ellenőrizzük, hogy nincs-e benne a hibaüzenet
+                error_msg = site_data.get("errorMsg")
+                if error_msg and isinstance(error_msg, str) and error_msg in response.text:
+                    return False, None
                 return True, target_url
 
-        # 2. Üzenet alapú ellenőrzés
+        # 2. Üzenet alapú ellenőrzés (ha a hibaüzenet NINCS benne a válaszban, akkor létezik)
         elif error_type == "message":
             error_msg = site_data.get("errorMsg")
             if error_msg and isinstance(error_msg, str):
@@ -80,7 +87,7 @@ def check_profile(site_name, site_data, username):
                 if response.status_code == 200:
                     return True, target_url
 
-        # 3. Válasz URL alapú ellenőrzés
+        # 3. Válasz URL / Redirect alapú ellenőrzés
         elif error_type == "response_url":
             if response.status_code == 200:
                 return True, target_url
