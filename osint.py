@@ -8,6 +8,7 @@ import random
 import time
 import sys
 
+# Valós böngésző User-Agent stringek a blokkolások elkerülésére
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Safari/605.1.15",
@@ -23,17 +24,22 @@ def get_random_headers():
     }
 
 def load_database(filename="data.json"):
+    """Betölti és elemzi a lokális Sherlock data.json fájlt."""
     try:
         with open(filename, "r", encoding="utf-8") as f:
             return json.load(f)
     except FileNotFoundError:
-        print(f"[!] Hiba: A(z) '{filename}' fájl nem található!")
+        print(f"[!] Hiba: A(z) '{filename}' fájl nem található a mappában!")
         sys.exit(1)
     except json.JSONDecodeError:
-        print(f"[!] Hiba: A(z) '{filename}' nem érvényes JSON!")
+        print(f"[!] Hiba: A(z) '{filename}' fájl nem érvényes JSON formátumú!")
         sys.exit(1)
 
 def check_profile(site_name, site_data, username):
+    """
+    Biztonságos és szigorú ellenőrző függvény, amely kiszűri a soft 404-es
+    és hamis pozitív találatokat.
+    """
     if not isinstance(site_data, dict):
         return False, None
 
@@ -61,35 +67,41 @@ def check_profile(site_name, site_data, username):
         else:
             response = requests.get(target_url, headers=headers, timeout=6, allow_redirects=True)
 
-        # Hamis pozitív szűrés: Ha az URL átirányított a főoldalra vagy bejelentkezési oldalra, az nem a keresett profil!
-        if response.history:
-            final_url = response.url.rstrip('/')
-            base_url = site_data.get("urlMain", "").rstrip('/')
-            if base_url and final_url == base_url:
+        # 1. Alapvető hálózati / státusz szűrés
+        if response.status_code in [404, 410, 403, 401]:
+            return False, None
+
+        # Ha a válaszoldal túl rövid (pl. egy üres 200-as hibaoldal), az nem profil
+        if len(response.text.strip()) < 150:
+            return False, None
+
+        # 2. Redirect / Átirányítás szűrés: Ha a végső URL megegyezik a főoldallal, az hamis találat
+        final_url = response.url.rstrip('/')
+        base_url = site_data.get("urlMain", "").rstrip('/')
+        if base_url and final_url == base_url:
+            return False, None
+
+        # 3. JSON-ben megadott hibaüzenet szigorú ellenőrzése
+        error_msg = site_data.get("errorMsg")
+        if error_msg and isinstance(error_msg, str):
+            if error_msg.lower() in response.text.lower():
                 return False, None
 
-        # 1. Státuszkód alapú ellenőrzés
+        # 4. Típus szerinti vizsgálat
         if error_type == "status_code":
             if response.status_code == 200:
-                # Extra védelem: Ha a JSON-ben van megadva errorMsg, de a status_code 200, ellenőrizzük, hogy nincs-e benne a hibaüzenet
-                error_msg = site_data.get("errorMsg")
-                if error_msg and isinstance(error_msg, str) and error_msg in response.text:
-                    return False, None
                 return True, target_url
 
-        # 2. Üzenet alapú ellenőrzés (ha a hibaüzenet NINCS benne a válaszban, akkor létezik)
         elif error_type == "message":
-            error_msg = site_data.get("errorMsg")
-            if error_msg and isinstance(error_msg, str):
+            if error_msg:
                 if error_msg not in response.text and response.status_code == 200:
                     return True, target_url
             else:
                 if response.status_code == 200:
                     return True, target_url
 
-        # 3. Válasz URL / Redirect alapú ellenőrzés
         elif error_type == "response_url":
-            if response.status_code == 200:
+            if response.status_code == 200 and final_url != base_url:
                 return True, target_url
 
     except requests.exceptions.RequestException:
