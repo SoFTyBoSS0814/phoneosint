@@ -2,132 +2,127 @@
 # -*- coding: utf-8 -*-
 
 import argparse
+import json
 import requests
-import time
 import random
-import hashlib
+import time
 import sys
 
 # Valós böngésző User-Agent stringek a blokkolások elkerülésére
 USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2.1 Safari/605.1.15",
-    "Mozilla/5.0 (X11; Linux x86_64; rv:123.0) Gecko/20100101 Firefox/123.0"
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko/20100101 Firefox/125.0"
 ]
 
 def get_random_headers():
     return {
         "User-Agent": random.choice(USER_AGENTS),
         "Accept-Language": "hu-HU,hu;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Connection": "keep-alive"
     }
 
-# ==============================================================================
-# SHERLOCK-STÍLUSÚ SZOLGÁLTATÁSI ADATBÁZIS (E-mail alapon)
-# ==============================================================================
-# Minden modul itt van definiálva: URL, módszer, paraméterek és a siker feltételei.
-SERVICES = {
-    "Twitter/X": {
-        "url": "https://api.twitter.com/i/users/email_available.json",
-        "method": "GET",
-        "params": lambda email: {"email": email},
-        "check": lambda res: res.status_code == 200 and (res.json().get("taken") == True or res.json().get("valid") == False),
-        "message": "Az e-mail címhez tartozik regisztrált fiók."
-    },
-    "Instagram": {
-        "url": "https://www.instagram.com/api/v1/users/check_email/",
-        "method": "POST",
-        "headers": {
-            "X-IG-App-ID": "936619743392459",
-            "X-Requested-With": "XMLHttpRequest",
-            "Referer": "https://www.instagram.com/accounts/emailsignup/"
-        },
-        "data": lambda email: {"email": email},
-        "check": lambda res: res.status_code == 200 and (res.json().get("available") == False or res.json().get("confirmed") == True),
-        "message": "Az e-mail már használatban van egy fióknál."
-    },
-    "Gravatar": {
-        "url": lambda email: f"https://www.gravatar.com/{hashlib.md5(email.strip().lower().encode('utf-8')).hexdigest()}.json",
-        "method": "GET",
-        "check": lambda res: res.status_code == 200,
-        "message": lambda res: f"Találat! | Felhasználónév: {res.json().get('entry', [{}])[0].get('preferredUsername', 'Ismeretlen')}"
-    }
-}
+def load_database(filename="data.json"):
+    """Betölti és elemzi a lokális Sherlock data.json fájlt."""
+    try:
+        with open(filename, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        print(f"[!] Hiba: A(z) '{filename}' fájl nem található a mappában!")
+        sys.exit(1)
+    except json.JSONDecodeError:
+        print(f"[!] Hiba: A(z) '{filename}' fájl nem érvényes JSON formátumú!")
+        sys.exit(1)
 
-# ==============================================================================
-# MOTOR (WORKER)
-# ==============================================================================
+def check_profile(site_name, site_data, username):
+    """
+    Feldolgozza az adott oldal szabályait a data.json alapján,
+    és lefuttatja a HTTP kérést.
+    """
+    url_template = site_data.get("url")
+    if not url_template:
+        return False, None
 
-def inspect_target(service_name, config, email):
-    """
-    Univerzális ellenőrző függvény, amely a konfiguráció alapján futtatja a lekérdezést.
-    """
+    target_url = url_template.format(username)
+    error_type = site_data.get("errorType", "status_code")
+    
     headers = get_random_headers()
-    if "headers" in config:
-        headers.update(config["headers"])
+    # Ha a JSON-ben meg vannak adva extra fejlécek az adott oldalhoz
+    if "headers" in site_data and isinstance(site_data["headers"], dict):
+        headers.update(site_data["headers"])
 
     try:
-        # URL meghatározása (lehet statikus string vagy dinamikus lambda)
-        target_url = config["url"](email) if callable(config["url"]) else config["url"]
+        # A Sherlock alapértelmezetten GET kérést használ, de figyelembe vesszük a JSON-t ha mást kér
+        method = site_data.get("requestType", "GET").upper()
         
-        # Paraméterek vagy adatok összeállítása
-        params = config["params"](email) if "params" in config else None
-        data = config["data"](email) if "data" in config else None
-
-        # HTTP kérés indítása a megadott metódussal
-        if config["method"] == "GET":
-            response = requests.get(target_url, headers=headers, params=params, timeout=6)
-        elif config["method"] == "POST":
-            response = requests.post(target_url, headers=headers, data=data, timeout=6)
+        if method == "POST":
+            response = requests.post(target_url, headers=headers, timeout=6, allow_redirects=True)
         else:
-            return None
+            response = requests.get(target_url, headers=headers, timeout=6, allow_redirects=True)
 
-        # Eredmény kiértékelése a konfigurált feltétel (check) alapján
-        if config["check"](response):
-            msg_conf = config["message"]
-            if callable(msg_conf):
-                return msg_conf(response)
-            return msg_conf
+        # 1. Státuszkód alapú ellenőrzés (pl. 200 = létezik, 404 = nem létezik)
+        if error_type == "status_code":
+            # Alapértelmezett hiba státusz a 404
+            error_code = site_data.get("errorCod", 404)
+            if response.status_code == 200:
+                return True, target_url
+
+        # 2. Üzenet alapú ellenőrzés (ha a válaszoldal tartalmaz egy adott hibaüzenetet, akkor nincs fiók)
+        elif error_type == "message":
+            error_msg = site_data.get("errorMsg")
+            if error_msg:
+                # Ha a hibaüzenet NINCS benne a válaszban, akkor valószínűleg létezik a profil
+                if error_msg not in response.text and response.status_code == 200:
+                    return True, target_url
+
+        # 3. Válasz URL / Redirect alapú ellenőrzés
+        elif error_type == "response_url":
+            if response.status_code == 200:
+                return True, target_url
 
     except requests.exceptions.RequestException:
+        # Hálózati hiba, időtúllépés esetén csendesen továbblépünk
         pass
     except Exception:
         pass
 
-    return None
-
-# ==============================================================================
-# FŐ PROGRAM
-# ==============================================================================
+    return False, None
 
 def main():
-    parser = argparse.ArgumentParser(description="Mini-Sherlock alapú e-mail OSINT keretrendszer.")
-    parser.add_argument("-e", "--email", required=True, help="A vizsgálandó e-mail cím")
+    parser = argparse.ArgumentParser(description="Mini-Sherlock lokális JSON alapú OSINT névkereső.")
+    parser.add_argument("-u", "--username", required=True, help="A keresett felhasználónév")
+    parser.add_argument("-j", "--json", default="data.json", help="A data.json fájl elérési útja (alapértelmezett: data.json)")
     args = parser.parse_args()
     
-    target_email = args.email
+    target_user = args.username
+    database = load_database(args.json)
 
-    print(f"\n[i] Célpont: {target_email}")
-    print(f"[i] Modulok betöltve: {len(SERVICES)} db")
-    print("[i] Vizsgálat indítása a háttérben...\n" + "="*50)
+    print(f"\n[i] Célpont felhasználónév: {target_user}")
+    print(f"[i] Adatbázis betöltve: {len(database)} db platform elemezve.")
+    print("[i] Keresés indítása a háttérben...\n" + "=" * 60)
 
     found_count = 0
+    start_time = time.time()
 
-    for name, config in SERVICES.items():
-        print(f"[*] Keresés itt: {name:<12} ...", end="", flush=True)
-        time.sleep(random.uniform(0.3, 0.6))
+    for site_name, site_data in database.items():
+        print(f"[*] Keresés itt: {site_name:<18} ...", end="", flush=True)
         
-        result = inspect_target(name, config, target_email)
+        success, url = check_profile(site_name, site_data, target_user)
         
-        if result:
+        if success:
             print(" [TALÁLAT]")
-            print(f"    └── {result}")
+            print(f"    └── {url}")
             found_count += 1
         else:
-            print(" [Nincs találat]")
+            print(" [Nincs]")
+        
+        # Minimális szünet a kérések között a túlterhelés elkerülésére
+        time.sleep(0.05)
 
-    print("="*50)
-    print(f"[i] Keresés vége. Összesen {found_count} találat.")
+    elapsed_time = round(time.time() - start_time, 2)
+    print("=" * 60)
+    print(f"[i] Keresés vége. Találatok: {found_count} db | Időtartam: {elapsed_time}s")
 
 if __name__ == "__main__":
     main()
