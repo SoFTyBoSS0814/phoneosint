@@ -4,60 +4,57 @@
 import argparse
 import requests
 import sys
+import time
+import random
+
+# Különböző valós böngésző User-Agent字符串ek, hogy ne egyformázat küldjünk
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2.1 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64; rv:123.0) Gecko/20100101 Firefox/123.0"
+]
+
+def get_random_headers():
+    return {
+        "User-Agent": random.choice(USER_AGENTS),
+        "Accept-Language": "hu-HU,hu;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+    }
 
 # ==============================================================================
-# MODULOK / WEBOLDALAK DEFINÍCIÓJA
-# 
-# Megjegyzés edukációs célra: A legtöbb modern platform (Facebook, Twitter/X, 
-# Instagram, Snapchat) komplex védelemmel (Cloudflare, CAPTCHA, rate-limiting) 
-# vagy mobilalkalmazás-specifikus API-kkal rendelkezik. Az alábbi függvények 
-# demonstrációs / vázlat szinten mutatják be, hogyan építhetők be a lekérdezések.
+# MODULOK (SZOLGÁLTATÁSOK)
 # ==============================================================================
 
 def check_twitter(email):
     """
-    Twitter / X e-mail ellenőrzési vázlat.
-    A Twitter regisztrációs/jelszó-visszaállítási felülete ellenőrzi, hogy 
-    létezik-e az e-mail cím.
+    Twitter/X ellenőrzési modul vázlat.
     """
-    url = "https://api.twitter.com/i/users/email_available.json" # Példa endpoint
+    url = "https://api.twitter.com/i/users/email_available.json"
     params = {"email": email}
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "X-Twitter-Active-User": "yes",
-        "X-Requested-With": "XMLHttpRequest"
-    }
-
+    
     try:
-        # A valóságban itt szükség lehet tokenekre vagy pontosabb API fejlécekre
-        response = requests.get(url, params=params, headers=headers, timeout=5)
-        
+        response = requests.get(url, params=params, headers=get_random_headers(), timeout=5)
         if response.status_code == 200:
             data = response.json()
-            # Ha a valid kulcs hamis vagy taken, akkor létezik a fiók
             if data.get("taken") == True or data.get("valid") == False:
-                return "[+] Twitter/X: Fiók találat (az e-mailhez tartozik regisztráció)."
-    except Exception:
+                return "[+] Twitter/X: Az e-mail címhez tartozik regisztrált fiók."
+    except requests.exceptions.RequestException:
         pass
-    
     return None
 
 
 def check_instagram(email):
     """
-    Instagram e-mail ellenőrzési vázlat.
-    Az Instagram webes regisztrációs felülete JSON választ ad arra, 
-    hogy az e-mail cím regisztrálva van-e már.
+    Instagram ellenőrzési modul vázlat.
     """
     url = "https://www.instagram.com/accounts/web_create_ajax/attempt/"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "X-Requested-With": "XMLHttpRequest",
-        "Referer": "https://www.instagram.com/accounts/emailsignup/"
-    }
+    headers = get_random_headers()
+    headers["X-Requested-With"] = "XMLHttpRequest"
+    headers["Referer"] = "https://www.instagram.com/accounts/emailsignup/"
+    
     data = {
         "email": email,
-        "username": "testuser123456789",
+        "username": "osint_test_user_99",
         "first_name": "Test",
         "opt_into_one_tap": "false"
     }
@@ -66,88 +63,70 @@ def check_instagram(email):
         response = requests.post(url, data=data, headers=headers, timeout=5)
         if response.status_code == 200:
             res_json = response.json()
-            # Ha az e-mail már foglalt, az Instagram hibaüzenetet ad vissza rá
             if "email_is_taken" in res_json.get("errors", {}):
-                return "[+] Instagram: Fiók találat (az e-mail már használatban van)."
-    except Exception:
+                return "[+] Instagram: Az e-mail már használatban van egy fióknál."
+    except requests.exceptions.RequestException:
         pass
-
     return None
 
 
-def check_facebook(email):
+def check_gravatar(email):
     """
-    Facebook fiókkereső / regisztrációs ellenőrzés vázlat.
+    Gravatar modul (Ez a valóságban is teljesen stabilan működik, 
+    mivel nyilvános API-t használ).
     """
-    # A Facebook erős védelemmel (CAPTCHA / block) szűri az automatizált kéréseket,
-    # ezért ez a modul saját szerverről vagy védelem nélkül gyakran hibára futhat.
-    url = "https://www.facebook.com/login/identify/?ctx=recover"
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+    import hashlib
+    email_hash = hashlib.md5(email.strip().lower().encode('utf-8')).hexdigest()
+    url = f"https://www.gravatar.com/{email_hash}.json"
     
     try:
-        # Itt a Facebook fiókfelismerő oldalát kellene parselni (pl. BeautifulSoup-pal)
-        # response = requests.get(url, headers=headers, timeout=5)
+        response = requests.get(url, headers=get_random_headers(), timeout=5)
+        if response.status_code == 200:
+            return f"[+] Gravatar: Profil megtalálva -> https://gravatar.com/{email_hash}"
+    except requests.exceptions.RequestException:
         pass
-    except Exception:
-        pass
-
     return None
 
 
-def check_snapchat(email):
-    """
-    Snapchat e-mail ellenőrzési vázlat.
-    """
-    url = "https://accounts.snapchat.com/accounts/merlin/login"
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-
-    try:
-        # A Snapchat belső API-ja vagy webes felülete hasonló logikát használ
-        pass
-    except Exception:
-        pass
-
-    return None
-
-
-# Fő lista, ami összegyűjti az összes ellenőrző funkciót
+# Modulok listája
 MODULES = [
-    check_twitter,
-    check_instagram,
-    check_facebook,
-    check_snapchat,
+    ("Twitter/X", check_twitter),
+    ("Instagram", check_instagram),
+    ("Gravatar", check_gravatar)
 ]
 
-
 # ==============================================================================
-# FŐ PROGRAM LOGIKA
+# FŐ PROGRAM
 # ==============================================================================
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Oktatási célú OSINT e-mail ellenőrző keretrendszer (Social Media modulokkal).",
-        usage="python osint_tool.py -e pelda@email.com"
-    )
+    parser = argparse.ArgumentParser(description="Továbbfejlesztett edukációs OSINT keretrendszer.")
     parser.add_argument("-e", "--email", required=True, help="A vizsgálandó e-mail cím")
-
     args = parser.parse_args()
+    
     target_email = args.email
 
-    print(f"\n[*] Célpont e-mail: {target_email}")
-    print("[*] Keresés indítása a közösségi oldalakon...\n" + "-" * 50)
+    print(f"\n[i] Célpont: {target_email}")
+    print("[i] Modulok futtatása véletlenszerű késleltetéssel és fejlécekkel...\n" + "="*50)
 
-    found_results = 0
+    found_count = 0
 
-    for mod in MODULES:
-        result = mod(target_email)
+    for name, func in MODULES:
+        print([*] Ellenőrzés itt: {name}...", end="", flush=True)
+        
+        # Késleltetés elhelyezése a kérések között (elkerüli az azonnali gyanús tiltást)
+        time.sleep(random.uniform(1.0, 2.5))
+        
+        result = func(target_email)
         if result:
-            print(result)
-            found_results += 1
+            print(" Siker!")
+            print(f"    {result}")
+            found_count += 1
         else:
-            print(f"[-] {mod.__name__}: Nincs találat vagy a szolgáltatás blokkolta a kérést.")
+            print(" Nincs találat / Blokkolva.")
 
-    print("-" * 50)
-    print(f"[*] Keresés kész. Összesen {found_results} pozitív találat érkezett.")
+    print("="*50)
+    print(f"[i] Vizsgálat vége. Összesen {found_count} találat.")
 
 if __name__ == "__main__":
     main()
