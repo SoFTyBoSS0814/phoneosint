@@ -37,8 +37,7 @@ def load_database(filename="data.json"):
 
 def check_profile(site_name, site_data, username):
     """
-    Biztonságos és szigorú ellenőrző függvény, amely kiszűri a soft 404-es,
-    SPA keretrendszeres és hamis pozitív találatokat.
+    Biztonságos és szigorú ellenőrző függvény diagnosztikai kiíratással.
     """
     if not isinstance(site_data, dict):
         return False, None
@@ -75,9 +74,16 @@ def check_profile(site_name, site_data, username):
         if base_url and final_url == base_url:
             return False, None
 
-        # 3. KÖTELEZŐ NÉVEGYEZÉS VIZSGÁLAT (SPA oldalak és hamis 200 OK ellen)
-        # Ha a keresett felhasználónév betűről betűre NINCS BENNE a kapott válasz szövegében,
-        # akkor az oldal csak egy generikus keretrendszer vagy hibaoldal, nem a profil!
+        # --- DIAGNOSZTIKA: Részletes infó a Codolio-ról vagy hibás találatokról ---
+        if site_name.lower() == "codolio":
+            name_in_text = username.lower() in response.text.lower()
+            print(f"\n[DEBUG] URL: {target_url}")
+            print(f"[DEBUG] Státusz: {response.status_code}")
+            print(f"[DEBUG] A keresett név ('{username.lower()}') benne van a szövegben? {name_in_text}")
+            if name_in_text:
+                print(f"[DEBUG] Válasz hossza: {len(response.text)} karakter")
+
+        # 3. KÖTELEZŐ NÉVEGYEZÉS VIZSGÁLAT
         if username.lower() not in response.text.lower():
             return False, None
 
