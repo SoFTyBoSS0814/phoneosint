@@ -7,7 +7,7 @@ import sys
 import time
 import random
 
-# Különböző valós böngésző User-Agent字符串ek, hogy ne egyformázat küldjünk
+# Különböző valós böngésző User-Agent stringek, hogy ne ugyanazt küldjük
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2.1 Safari/605.1.15",
@@ -72,8 +72,7 @@ def check_instagram(email):
 
 def check_gravatar(email):
     """
-    Gravatar modul (Ez a valóságban is teljesen stabilan működik, 
-    mivel nyilvános API-t használ).
+    Gravatar modul (Ez a valóságban is teljesen stabilan működik).
     """
     import hashlib
     email_hash = hashlib.md5(email.strip().lower().encode('utf-8')).hexdigest()
@@ -112,9 +111,9 @@ def main():
     found_count = 0
 
     for name, func in MODULES:
-        print([*] Ellenőrzés itt: {name}...", end="", flush=True)
+        print(f"[*] Ellenőrzés itt: {name}...", end="", flush=True)
         
-        # Késleltetés elhelyezése a kérések között (elkerüli az azonnali gyanús tiltást)
+        # Késleltetés elhelyezése a kérések között
         time.sleep(random.uniform(1.0, 2.5))
         
         result = func(target_email)
