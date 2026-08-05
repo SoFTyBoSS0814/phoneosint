@@ -519,7 +519,7 @@
         "urlMain": "https://codolio.com/",
         "username_claimed": "admin",
         "regexCheck": "^[a-zA-Z0-9_-]{3,30}$"
-    }
+    },
   "Coinvote": {
     "errorType": "status_code",
     "url": "https://coinvote.cc/profile/{}",
