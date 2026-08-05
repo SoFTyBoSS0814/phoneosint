@@ -11,6 +11,13 @@
     "urlMain": "https://www.1337x.to/",
     "username_claimed": "FitGirl"
   },
+  "Gyakorikerdesek": {
+    "errorType": "status_code",
+    "errorCode": 404,
+    "url": "https://www.gyakorikerdesek.hu/kereses/{}/",
+    "urlMain": "https://www.gyakorikerdesek.hu/",
+    "regexCheck": "^[a-zA-Z0-9_-]+$"
+  },
   "2Dimensions": {
     "errorType": "status_code",
     "url": "https://2Dimensions.com/a/{}",
