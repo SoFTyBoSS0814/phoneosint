@@ -37,7 +37,7 @@ def load_database(filename="data.json"):
 
 def check_profile(site_name, site_data, username):
     """
-    Biztonságos és szigorú ellenőrző függvény optimalizált hibaüzenet-sorrenddel.
+    Biztonságos és szigorú ellenőrző függvény SPA-specifikus kiegészítésekkel.
     """
     if not isinstance(site_data, dict):
         return False, None
@@ -74,19 +74,25 @@ def check_profile(site_name, site_data, username):
         if base_url and final_url == base_url:
             return False, None
 
-        # 3. HIBAÜZENET ELSŐDLEGES ELLENŐRZÉSE (SPA oldalaknál ez a kulcs!)
-        # Ha az oldal tartalmazza a megadott hibaüzenetet (pl. Page Not Found), 
-        # akkor azonnal elutasítjuk, függetlenül attól, hogy a név szerepel-e a kódban.
+        # 3. HIBAÜZENET ELSŐDLEGES ELLENŐRZÉSE
         error_msg = site_data.get("errorMsg")
         if error_msg and isinstance(error_msg, str):
             if error_msg.lower() in response.text.lower():
                 return False, None
 
-        # 4. KÖTELEZŐ NÉVEGYEZÉS VIZSGÁLAT (Csak akkor, ha nincs hibaüzenet)
+        # 4. KÖTELEZŐ NÉVEGYEZÉS VIZSGÁLAT
         if username.lower() not in response.text.lower():
             return False, None
 
-        # 5. Ha minden szűrőn átment és a státusz 200
+        # 5. SPECIÁLIS SPA / KLIENSOLDALI RENDERELÉS SZŰRŐ (pl. Codolio jellegű oldalak)
+        # Ha az oldal 200-assal tér vissza és benne van a név, de kliensoldali sablonról van szó,
+        # itt kiszűrhetjük, ha hiányoznak a valós profilra utaló strukturális elemek.
+        if site_name.lower() == "codolio":
+            # Ha nem tartalmazza a felhasználói profilra jellemző specifikus JSON kulcsokat/elemeket, hamis találatnak minősítjük
+            if '"username"' not in response.text.lower() and 'profile' not in response.text.lower():
+                return False, None
+
+        # 6. Ha minden szűrőn átment és a státusz 200
         if response.status_code == 200:
             return True, target_url
 
