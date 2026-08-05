@@ -37,7 +37,7 @@ def load_database(filename="data.json"):
 
 def check_profile(site_name, site_data, username):
     """
-    Biztonságos és szigorú ellenőrző függvény diagnosztikai kiíratással.
+    Biztonságos és szigorú ellenőrző függvény optimalizált hibaüzenet-sorrenddel.
     """
     if not isinstance(site_data, dict):
         return False, None
@@ -74,24 +74,17 @@ def check_profile(site_name, site_data, username):
         if base_url and final_url == base_url:
             return False, None
 
-        # --- DIAGNOSZTIKA: Részletes infó a Codolio-ról vagy hibás találatokról ---
-        if site_name.lower() == "codolio":
-            name_in_text = username.lower() in response.text.lower()
-            print(f"\n[DEBUG] URL: {target_url}")
-            print(f"[DEBUG] Státusz: {response.status_code}")
-            print(f"[DEBUG] A keresett név ('{username.lower()}') benne van a szövegben? {name_in_text}")
-            if name_in_text:
-                print(f"[DEBUG] Válasz hossza: {len(response.text)} karakter")
-
-        # 3. KÖTELEZŐ NÉVEGYEZÉS VIZSGÁLAT
-        if username.lower() not in response.text.lower():
-            return False, None
-
-        # 4. JSON-ben megadott hibaüzenet ellenőrzése
+        # 3. HIBAÜZENET ELSŐDLEGES ELLENŐRZÉSE (SPA oldalaknál ez a kulcs!)
+        # Ha az oldal tartalmazza a megadott hibaüzenetet (pl. Page Not Found), 
+        # akkor azonnal elutasítjuk, függetlenül attól, hogy a név szerepel-e a kódban.
         error_msg = site_data.get("errorMsg")
         if error_msg and isinstance(error_msg, str):
             if error_msg.lower() in response.text.lower():
                 return False, None
+
+        # 4. KÖTELEZŐ NÉVEGYEZÉS VIZSGÁLAT (Csak akkor, ha nincs hibaüzenet)
+        if username.lower() not in response.text.lower():
+            return False, None
 
         # 5. Ha minden szűrőn átment és a státusz 200
         if response.status_code == 200:
